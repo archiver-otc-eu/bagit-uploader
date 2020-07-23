@@ -60,7 +60,7 @@ requiredNamed.add_argument(
     '-b', '--bag-path',
     action='append',
     help='Path to BagIt bag. It can be path to a bag archive (supported formats: `zip`, `tar`, `tgz`), extracted bag '
-         'directory or URL to a bag archive. Many bag paths can be passed (e.g.  `-b BAG_PATH1 -b BAG_PATH2`).',
+         'directory or URL to a bag archive. Many bag paths can be passed (e.g. `-b BAG_PATH1 -b BAG_PATH2`).',
     dest='bag_paths',
     required=True)
 

@@ -21,7 +21,7 @@ Script has the following list of **required** arguments:
                         path type equal to `canonical`.
 * `-t`, `--token` - Onedata access token.
 * `-b`, `--bag-path` - Path to BagIt bag. It can be path to a bag archive (supported formats: `zip`, `tar`, `tgz`), extracted bag directory or URL to a bag archive. 
-Many bag paths can be passed (e.g.  `-b BAG_PATH1 -b BAG_PATH2`).
+Many bag paths can be passed (e.g. `-b BAG_PATH1 -b BAG_PATH2`).
 
 Additionally, script has the following list of **optional** arguments:
 * `-m`, `--file-mode` - POSIX mode with which files will be registered, represented as an octal string (default: `"664"`)
