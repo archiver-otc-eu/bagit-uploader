@@ -38,3 +38,26 @@ Such files will be visible in the space but not accessible.
  -b bag_archiver_test_2017_10_11 \
  -b https://example.org/bag_archiver_test_2015_01_25.tgz
 ```
+
+## Config file
+Arguments that start with `'--'` (eg. `--host`) can also be set in a config file (by default `config.yaml`, but can be
+overridden by passing `--config-file CONFIG_FILE`).
+Config file syntax allows: `key: value`, `flag: true`, `stuff: [a,b,c]` (for details,
+see syntax at https://goo.gl/R74nmi). If an arg is specified in more than one
+place, then commandline values override config file values which override
+defaults.
+
+Example content of `config.yaml` is presented below
+```yaml
+host: dev-oneprovider-krakow.default.svc.cluster.local
+token: MDAzM2xvY2F00aW9uIGRldi1vbmV6b25lLmRlZmF1bHQuc3ZjLmNsdXN00ZXIubG9jYWwKMDA2YmlkZW500aWZpZXIgMi9ubWQvdXNyLTE3Mjk2MDBhMjE5YTFhZjNmNjc2MmQzOGE5YWFkMWZhY2hiN2M00L2FjdC8zMzE2ODg00MDg2YTdmNDY3OTEyODNiNzM3M2E2YTE4N2NoZDE1OAowMDE5Y2lkIGludGVyZmFjZSA9IHJlc3QKMDAxOGNpZCBzZXJ2aWNlID00gb3B3LSoKMDAyZnNpZ25hdHVyZSBLJbKLSFCaMYh500ThOCROkoq5W01OHM1Yt02lvstDZJ3YQo
+bag-path: [bag_archiver_test_2014_11_15.tgz, bag_archiver_test_2017_10_11, https://example.org/bag_archiver_test_2015_01_25.tgz]
+storage-id: ee5eb90cb451feb7a84a8185588e31d5e2f4c308
+space-id: 7b6863abad13e4191ba2bf540d553fe75cdf7117
+disable-auto-detection: true
+```
+
+## Usage with config file 
+```bash
+./upload.py
+```

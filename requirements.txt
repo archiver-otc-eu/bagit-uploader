@@ -1,3 +1,4 @@
 bdbag==1.5.6
 requests==2.24
 urllib3==1.25
+configargparse==1.2.3
