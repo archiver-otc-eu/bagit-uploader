@@ -1,6 +1,6 @@
 # bagit-uploader
-This repository contains script for registering files in the Onedata
-system that are stored in [BagIt](https://datatracker.ietf.org/doc/rfc8493/) format. 
+This repository contains script for registering files stored in [BagIt](https://datatracker.ietf.org/doc/rfc8493/) 
+format in the Onedata system. 
 
 The files are registered using Oneprovider [REST API](https://onedata.org/#/home/api/stable/oneprovider?anchor=operation/register_file).
 
