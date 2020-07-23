@@ -31,7 +31,7 @@ requiredNamed = parser.add_argument_group('required named arguments')
 requiredNamed.add_argument(
     '-H', '--host',
     action='store',
-    help='Oneprovider host',
+    help='Oneprovider host.',
     dest='host',
     required=True)
 
@@ -52,45 +52,48 @@ requiredNamed.add_argument(
 requiredNamed.add_argument(
     '-t', '--token',
     action='store',
-    help='Onedata access token',
+    help='Onedata access token.',
     dest='token',
     required=True)
 
 requiredNamed.add_argument(
     '-b', '--bag-path',
     action='append',
-    help='Path to bag. It can be path to a bag archive, extracted bag directory or URI to a bag archive.',
+    help='Path to BagIt bag. It can be path to a bag archive (supported formats: `zip`, `tar`, `tgz`), extracted bag '
+         'directory or URL to a bag archive. Many bag paths can be passed (e.g.  `-b BAG_PATH1 -b BAG_PATH2`).',
     dest='bag_paths',
     required=True)
 
 parser.add_argument(
     '-m', '--file-mode',
     action='store',
-    help='POSIX mode with which files will be registered, represented as an octal string',
+    help='POSIX mode with which files will be registered, represented as an octal string.',
     dest='mode',
-    default="664"
+    default="0664"
 )
 
 parser.add_argument(
     '-dd', '--disable-auto-detection',
     action='store_true',
-    help='Do not automatically detect file attributes and do not check whether file exists on storage.',
+    help='Flag which disables automatic detection of file attributes and verification whether file exists on storage. '
+         'Passing this flag results in faster registration of files but there is a risk of registering files that '
+         'don\'t exist on storage. Such files will be visible in the space but not accessible.',
     dest='disable_auto_detection',
     default=False
 )
 
 parser.add_argument(
-    '-logging', '--logging-frequency',
+    '-lf', '--logging-frequency',
     action='store',
     type=int,
-    help='Frequency of logging. Log will occur after registering every logging_freq number of files',
+    help='Frequency of logging. Log will occur after registering every logging_freq number of files.',
     dest='logging_freq',
     default=None)
 
 parser.add_argument(
     '-dv', '--disable-cert-verification',
     action='store_true',
-    help='Do not verify SSL certificate',
+    help='Flag which disables verification of SSL certificate.',
     dest='disable_cert_verification',
     default=False)
 
