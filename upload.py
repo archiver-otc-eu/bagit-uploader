@@ -38,14 +38,14 @@ requiredNamed.add_argument(
 requiredNamed.add_argument(
     '-spi', '--space-id',
     action='store',
-    help='Id of the space in which the file will be registered.',
+    help='Id of the space in which the files will be registered.',
     dest='space_id',
     required=True)
 
 requiredNamed.add_argument(
     '-sti', '--storage-id',
     action='store',
-    help='Id of the storage on which the file is located. Storage must be created as an `imported` storage with path type equal to `canonical`.',
+    help='Id of the storage on which the files are located. Storage must be created as an `imported` storage with path type equal to `canonical`.',
     dest='storage_id',
     required=True)
 
@@ -63,7 +63,7 @@ requiredNamed.add_argument(
     dest='bag_paths',
     required=True)
 
-requiredNamed.add_argument(
+parser.add_argument(
     '-m', '--file-mode',
     action='store',
     help='POSIX mode with which files will be registered, represented as an octal string',
@@ -71,7 +71,7 @@ requiredNamed.add_argument(
     default="664"
 )
 
-requiredNamed.add_argument(
+parser.add_argument(
     '-dd', '--disable-auto-detection',
     action='store_true',
     help='Do not automatically detect file attributes and do not check whether file exists on storage.',
@@ -87,7 +87,7 @@ parser.add_argument(
     dest='logging_freq',
     default=None)
 
-requiredNamed.add_argument(
+parser.add_argument(
     '-dv', '--disable-cert-verification',
     action='store_true',
     help='Do not verify SSL certificate',
