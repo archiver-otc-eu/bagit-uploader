@@ -145,11 +145,12 @@ def register_file(destination_path, storage_file_id, size, xattrs):
     try:
         response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
-            return destination_path
+            # ensure that path starts with slash
+            return os.path.join("/", destination_path)
         else:
             logging.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
                           .format(storage_file_id, response.status_code, response.content)),
-            return False
+            return None
     except Exception as e:
         logging.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
 
@@ -245,18 +246,35 @@ def prepare_checksum_xattrs(file_path, all_checksums):
     return checksum_xattrs
 
 
-def longest_common_prefix(str1, str2):
-    len1 = len(str1)
-    len2 = len(str2)
-    result = ""
+def path_to_tokens(path):
+    tokens = []
+    parent, base = os.path.split(path)
+    if base:
+        tokens.append(base)
+    while parent != "/":
+        print(parent, base)
+        parent, base = os.path.split(parent)
+        if base:
+            tokens.append(base)
+    tokens.append("/")
+    tokens.reverse()
+    return tokens
+
+
+def find_common_dir(dir1, dir2):
+    dir1_tokens = path_to_tokens(dir1)
+    dir2_tokens = path_to_tokens(dir2)
+    len1 = len(dir1_tokens)
+    len2 = len(dir2_tokens)
+    result = []
     j = i = 0
     while i <= len1 - 1 and j <= len2 - 1:
-        if str1[i] != str2[j]:
+        if dir1_tokens[i] != dir2_tokens[j]:
             break
-        result += (str1[i])
+        result.append(dir1_tokens[i])
         i += 1
         j += 1
-    return result
+    return os.path.join(*tuple(result))
 
 
 args = parser.parse_args()
@@ -286,18 +304,17 @@ try:
                         total_count += 1
                         total_size += int(size)
                         tmp_parent_dir = os.path.dirname(destination_path)
-                        print(destination_path)
                         if not parent_dir:
                             parent_dir = tmp_parent_dir
                         else:
-                            parent_dir = longest_common_prefix(parent_dir, tmp_parent_dir)
+                            parent_dir = find_common_dir(parent_dir, tmp_parent_dir)
                     i += 1
                     if args.logging_freq and i % args.logging_freq == 0 and i > 0:
                         print("Processed {0} files".format(i))
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
-    print("Scheduling transfer of directory {0}".format(parent_dir))
+    print("\nScheduling transfer of directory: {0}".format(parent_dir))
 
     if args.destination_provider_id:
         space_name = get_space_name(args.space_id)
