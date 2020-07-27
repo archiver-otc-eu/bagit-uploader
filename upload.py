@@ -108,8 +108,19 @@ parser.add_argument(
     dest='config_file'
 )
 
-REGISTER_FILE_ENDPOINT = "https://{0}/api/v3/oneprovider/data/register"
+parser.add_argument(
+    '--destination-provider-id', '-dpid',
+    action='store',
+    help='Id of a Oneprovider to which files will be replicated after registration. If not passed, replication won\'t be performed.',
+    dest='destination_provider_id',
+    default=None
+)
 
+ONEPROVIDER_REST_FORMAT = "https://{0}/api/v3/oneprovider/{1}"
+REGISTER_FILE_PATH = "data/register"
+SCHEDULE_TRANSFER_PATH = "transfers"
+LOOKUP_FILE_ID_PATH = "lookup-file-id/{0}/{1}"
+SPACE_DETAILS_PATH = "spaces/{0}"
 
 def strip_server_url(storage_file_id):
     parsed_url = urlparse(storage_file_id)
@@ -120,10 +131,6 @@ def strip_server_url(storage_file_id):
 
 
 def register_file(destination_path, storage_file_id, size, xattrs):
-    headers = {
-        'X-Auth-Token': args.token,
-        "content-type": "application/json"
-    }
     storage_file_id = strip_server_url(storage_file_id)
     payload = {
         'spaceId': args.space_id,
@@ -136,16 +143,38 @@ def register_file(destination_path, storage_file_id, size, xattrs):
         'autoDetectAttributes': not args.disable_auto_detection
     }
     try:
-        endpoint = REGISTER_FILE_ENDPOINT.format(args.host)
-        response = requests.post(endpoint, json=payload, headers=headers, verify=(not args.disable_cert_verification))
+        response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
-            return True
+            return destination_path
         else:
             logging.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
                           .format(storage_file_id, response.status_code, response.content)),
             return False
     except Exception as e:
         logging.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
+
+
+def get_space_name(space_id):
+    get_space_details_endpoint = ONEPROVIDER_REST_FORMAT.format(args.host, SPACE_DETAILS_PATH.format(space_id))
+    response = requests.get(get_space_details_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    return response.json()['name']
+
+
+def lookup_file_id(space_name, path):
+    lookup_file_id_endpoint = ONEPROVIDER_REST_FORMAT.format(args.host, LOOKUP_FILE_ID_PATH.format(space_name, path))
+    response = requests.post(lookup_file_id_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    return response.json()['fileId']
+
+
+def schedule_transfer_job(file_id, destination_provider):
+    payload = {
+        "type": "replication",
+        "replicatingProviderId": destination_provider,
+        "fileId": file_id,
+        "dataSourceType": "file"
+    }
+    response = requests.post(SCHEDULE_TRANSFER_ENDPOINT, headers=HEADERS, json=payload, verify=(not args.disable_cert_verification))
+    return response.json()['transferId']
 
 
 def ensure_bag_extracted(bag_path):
@@ -216,11 +245,31 @@ def prepare_checksum_xattrs(file_path, all_checksums):
     return checksum_xattrs
 
 
+def longest_common_prefix(str1, str2):
+    len1 = len(str1)
+    len2 = len(str2)
+    result = ""
+    j = i = 0
+    while i <= len1 - 1 and j <= len2 - 1:
+        if str1[i] != str2[j]:
+            break
+        result += (str1[i])
+        i += 1
+        j += 1
+    return result
+
+
 args = parser.parse_args()
-total_size = 0
-total_count = 0
 
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
+REGISTER_FILE_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, REGISTER_FILE_PATH)
+SCHEDULE_TRANSFER_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, SCHEDULE_TRANSFER_PATH)
+HEADERS = {'X-Auth-Token': args.token, "content-type": "application/json"}
+
+total_size = 0
+total_count = 0
+parent_dir = None
+
 try:
     for bag_path in args.bag_paths:
         print("Registering files from bag: ", bag_path)
@@ -232,15 +281,29 @@ try:
                 for line in f:
                     [file_uri, size, file_path] = line.split()
                     xattrs = prepare_checksum_xattrs(file_path, all_checksums)
-                    if register_file(file_path, file_uri, size, prepare_checksum_xattrs(file_path, all_checksums)):
+                    destination_path = register_file(file_path, file_uri, size, prepare_checksum_xattrs(file_path, all_checksums))
+                    if destination_path:
                         total_count += 1
                         total_size += int(size)
+                        tmp_parent_dir = os.path.dirname(destination_path)
+                        print(destination_path)
+                        if not parent_dir:
+                            parent_dir = tmp_parent_dir
+                        else:
+                            parent_dir = longest_common_prefix(parent_dir, tmp_parent_dir)
                     i += 1
                     if args.logging_freq and i % args.logging_freq == 0 and i > 0:
                         print("Processed {0} files".format(i))
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
+    print("Scheduling transfer of directory {0}".format(parent_dir))
+
+    if args.destination_provider_id:
+        space_name = get_space_name(args.space_id)
+        dir_id = lookup_file_id(space_name, parent_dir)
+        transfer_id = schedule_transfer_job(dir_id, args.destination_provider_id)
+        print("Scheduled transfer: {0}".format(transfer_id))
 
 finally:
     shutil.rmtree(TEMP_DIR, ignore_errors=True)

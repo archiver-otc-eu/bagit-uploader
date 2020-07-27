@@ -30,10 +30,12 @@ Passing this flag results in faster registration of files but there is a risk of
 Such files will be visible in the space but not accessible.
 * `-dv`, `--disable-cert-verification` - Flag which disables verification of SSL certificate.
 * `-lf`, `--logging-frequency` - Frequency of logging. Log will occur after registering every logging_freq number of files.
+* `-dpid`, `--destination-provider-id` - Id of a Oneprovider to which files will be replicated after registration. 
+If not passed, replication won't be performed.
 
 ## Usage
 ```bash
-./upload.py -spi $SPACE_ID -sti $STORAGE_ID -t $TOKEN -H $HOST \ 
+./upload.py -spi $SPACE_ID -sti $STORAGE_ID -t $TOKEN -H $HOST -dpid $DEST_PROVIDER_ID \ 
  -b bag_archiver_test_2014_11_15.tgz \
  -b bag_archiver_test_2017_10_11 \
  -b https://example.org/bag_archiver_test_2015_01_25.tgz
@@ -55,6 +57,7 @@ bag-path: [bag_archiver_test_2014_11_15.tgz, bag_archiver_test_2017_10_11, https
 storage-id: ee5eb90cb451feb7a84a8185588e31d5e2f4c308
 space-id: 7b6863abad13e4191ba2bf540d553fe75cdf7117
 disable-auto-detection: true
+destination-provider-id: fa8dec41fa50d2c11e9a95306461694echd208
 ```
 
 ## Usage with config file 
