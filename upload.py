@@ -252,7 +252,7 @@ def path_to_tokens(path):
     if base:
         tokens.append(base)
     while parent != "/":
-        print(parent, base)
+        # print(parent, base)
         parent, base = os.path.split(parent)
         if base:
             tokens.append(base)
@@ -314,9 +314,9 @@ try:
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
-    print("\nScheduling transfer of directory: {0}".format(parent_dir))
 
     if args.destination_provider_id:
+        print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
         dir_id = lookup_file_id(space_name, parent_dir)
         transfer_id = schedule_transfer_job(dir_id, args.destination_provider_id)
