@@ -9,13 +9,19 @@ import urllib3
 import requests
 import os
 import logging
+import json
+import datetime
+import tarfile
+import zipfile
 from http import HTTPStatus
 from bdbag import bdbag_api
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+logger = logging.getLogger(__name__)
 
 FILES_INDEX = "fetch.txt"
 CHECKSUM_MANIFEST_FORMAT = "manifest-{0}.txt"
+METADATA_JSON = "metadata.json"
 MD5 = "md5"
 SHA1 = "sha1"
 SHA256 = "sha256"
@@ -130,7 +136,7 @@ def strip_server_url(storage_file_id):
         return storage_file_id
 
 
-def register_file(destination_path, storage_file_id, size, xattrs):
+def register_file(destination_path, storage_file_id, size, xattrs, custom_json_metadata=dict()):
     storage_file_id = strip_server_url(storage_file_id)
     payload = {
         'spaceId': args.space_id,
@@ -142,17 +148,19 @@ def register_file(destination_path, storage_file_id, size, xattrs):
         'xattrs': xattrs,
         'autoDetectAttributes': not args.disable_auto_detection
     }
+    if custom_json_metadata:
+        payload['json'] = custom_json_metadata
     try:
         response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
             # ensure that path starts with slash
             return os.path.join("/", destination_path)
         else:
-            logging.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
+            logger.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
                           .format(storage_file_id, response.status_code, response.content)),
             return None
     except Exception as e:
-        logging.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
+        logger.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
 
 
 def get_space_name(space_id):
@@ -178,29 +186,70 @@ def schedule_transfer_job(file_id, destination_provider):
     return response.json()['transferId']
 
 
-def ensure_bag_extracted(bag_path):
+def ensure_bag_extracted(bag_path, should_remove_extracted_bag=False):
     try:
         (is_file, is_dir, is_uri) = bdbag_api.inspect_path(bag_path)
         if is_file:
             bag_path = extract_bag_archive(bag_path)
-            return ensure_bag_extracted(bag_path)
+            return ensure_bag_extracted(bag_path, should_remove_extracted_bag=True)
         elif is_dir and bdbag_api.is_bag(bag_path):
             # bag_path is already a path to a correct bag structure
-            return bag_path
+            return bag_path, should_remove_extracted_bag
         elif is_uri:
             bag_path = download(bag_path)
             return ensure_bag_extracted(bag_path)
         else:
-            logging.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path))
-            return None
+            logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path))
+            return None, False
     except:
-        logging.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path),
+        logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path),
                       exc_info=True)
-        return None
+        return None, False
 
 
 def extract_bag_archive(bag_archive_path):
-    return bdbag_api.extract_bag(bag_archive_path, temp=True)
+    return extract_bag(bag_archive_path, temp=True)
+
+
+def extract_bag(bag_path, output_path=None, temp=False):
+    # This function is a copy of bdbag_api.extract_bag function but it properly
+    # handles case when bag directory has different basename than archive file
+    if not os.path.exists(bag_path):
+        raise RuntimeError("Specified bag path not found: %s" % bag_path)
+
+    bag_dir = os.path.splitext(os.path.basename(bag_path))[0]
+    if os.path.isfile(bag_path):
+        if temp:
+            output_path = tempfile.mkdtemp(prefix='bag_')
+        elif not output_path:
+            output_path = os.path.splitext(bag_path)[0]
+            if os.path.exists(output_path):
+                newpath = ''.join([output_path, '-', datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
+                print("Specified output path %s already exists, moving existing directory to %s" %
+                            (output_path, newpath))
+                shutil.move(output_path, newpath)
+            output_path = os.path.dirname(bag_path)
+        if zipfile.is_zipfile(bag_path):
+            print("Extracting ZIP archived file: %s" % bag_path)
+            with open(bag_path, 'rb') as bag_file:
+                zipped = zipfile.ZipFile(bag_file)
+                zipped.extractall(output_path)
+                bag_dir = zipped.namelist()[0].rstrip(os.path.sep)
+                zipped.close()
+        elif tarfile.is_tarfile(bag_path):
+            print("Extracting TAR/GZ/BZ2 archived file: %s" % bag_path)
+            tarred = tarfile.open(bag_path)
+            tarred.extractall(output_path)
+            bag_dir = tarred.getnames()[0].rstrip(os.path.sep)
+            tarred.close()
+        else:
+            raise RuntimeError("Archive format not supported for file: %s"
+                               "\nSupported archive formats are ZIP or TAR/GZ/BZ2" % bag_path)
+
+    extracted_path = os.path.join(output_path, bag_dir)
+    print("File %s was successfully extracted to directory %s" % (bag_path, extracted_path))
+
+    return extracted_path
 
 
 def download(url):
@@ -246,13 +295,28 @@ def prepare_checksum_xattrs(file_path, all_checksums):
     return checksum_xattrs
 
 
+def prepare_metadata_json(bag_path):
+    metadata_json_path = os.path.join(bag_path, METADATA_JSON)
+    if os.path.exists(metadata_json_path):
+        with open(metadata_json_path, 'r') as f:
+            metadata_json = json.load(f)
+            files_json_metadata_list = metadata_json.get("metadata", [])
+            files_json_metadata_map = {element['filename']: element for element in files_json_metadata_list}
+            return files_json_metadata_map
+    else:
+        return dict()
+
+
+def get_file_custom_json_metadata(file_path, metadata_json):
+    return metadata_json.get(os.path.basename(file_path), dict())
+
+
 def path_to_tokens(path):
     tokens = []
     parent, base = os.path.split(path)
     if base:
         tokens.append(base)
     while parent != "/":
-        # print(parent, base)
         parent, base = os.path.split(parent)
         if base:
             tokens.append(base)
@@ -291,15 +355,18 @@ parent_dir = None
 try:
     for bag_path in args.bag_paths:
         print("Registering files from bag: ", bag_path)
-        bag_path = ensure_bag_extracted(bag_path)
+        bag_path, should_remove_extracted_bag = ensure_bag_extracted(bag_path)
         if bag_path:
             all_checksums = collect_all_checksums(bag_path)
+            files_json_metadata = prepare_metadata_json(bag_path)
             with open(os.path.join(bag_path, FILES_INDEX), 'r') as f:
                 i = 0
                 for line in f:
                     [file_uri, size, file_path] = line.split()
                     xattrs = prepare_checksum_xattrs(file_path, all_checksums)
-                    destination_path = register_file(file_path, file_uri, size, prepare_checksum_xattrs(file_path, all_checksums))
+                    checksum_xattrs = prepare_checksum_xattrs(file_path, all_checksums)
+                    file_json_metadata = get_file_custom_json_metadata(file_path, files_json_metadata)
+                    destination_path = register_file(file_path, file_uri, size, checksum_xattrs, file_json_metadata)
                     if destination_path:
                         total_count += 1
                         total_size += int(size)
@@ -311,6 +378,9 @@ try:
                     i += 1
                     if args.logging_freq and i % args.logging_freq == 0 and i > 0:
                         print("Processed {0} files".format(i))
+
+        if should_remove_extracted_bag:
+            shutil.rmtree(os.path.dirname(bag_path), ignore_errors=True)
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
