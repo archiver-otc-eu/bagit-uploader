@@ -10,6 +10,7 @@ import requests
 import os
 import logging
 import json
+import time
 import datetime
 import tarfile
 import zipfile
@@ -115,10 +116,10 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    '--destination-provider-id', '-dpid',
+    '--destination-host', '-dhost',
     action='store',
-    help='Id of a Oneprovider to which files will be replicated after registration. If not passed, replication won\'t be performed.',
-    dest='destination_provider_id',
+    help='Host of a Oneprovider to which files will be replicated after registration. If not passed, replication won\'t be performed.',
+    dest='destination_host',
     default=None
 )
 
@@ -127,6 +128,9 @@ REGISTER_FILE_PATH = "data/register"
 SCHEDULE_TRANSFER_PATH = "transfers"
 LOOKUP_FILE_ID_PATH = "lookup-file-id/{0}/{1}"
 SPACE_DETAILS_PATH = "spaces/{0}"
+FILE_DISTRIBUTION_PATH = "data/{0}/distribution"
+PROVIDER_INFO = "configuration"
+
 
 def strip_server_url(storage_file_id):
     parsed_url = urlparse(storage_file_id)
@@ -154,7 +158,7 @@ def register_file(destination_path, storage_file_id, size, xattrs, custom_json_m
         response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
             # ensure that path starts with slash
-            return os.path.join("/", destination_path)
+            return os.path.join("/", destination_path), response.json()['fileId'], int(size)
         else:
             logger.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
                           .format(storage_file_id, response.status_code, response.content)),
@@ -341,6 +345,48 @@ def find_common_dir(dir1, dir2):
     return os.path.join(*tuple(result))
 
 
+def get_file_distribution(provider_host, file_id):
+    get_file_distribution_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host, FILE_DISTRIBUTION_PATH.format(file_id))
+    response = requests.get(get_file_distribution_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    if response.status_code == HTTPStatus.OK:
+        return response.json()
+
+
+def wait_for_synchronization_of_files(files_sizes, destination_host, src_provider_id):
+    for file_id, file_size in files_sizes.items():
+        wait_for_synchronization_of_file(file_id, file_size, destination_host, src_provider_id, 15)
+
+
+def wait_for_synchronization_of_file(file_id, expected_file_size, destination_host, src_provider_id, attempts):
+    if attempts == 0:
+        raise Exception("File {0} not synchronized, coult not schedule transfer".format(file_id))
+    else:
+        file_distribution = get_file_distribution(destination_host, file_id)
+        if file_distribution:
+            src_provider_file_distribution = find_provider_file_distribution(file_distribution, src_provider_id)
+            if src_provider_file_distribution and src_provider_file_distribution['totalBlocksSize'] == expected_file_size:
+                return
+            else:
+                time.sleep(1)
+                wait_for_synchronization_of_file(file_id, expected_file_size, destination_host, src_provider_id, attempts - 1)
+        else:
+            time.sleep(1)
+            wait_for_synchronization_of_file(file_id, expected_file_size, destination_host, src_provider_id,
+                                             attempts - 1)
+
+
+def find_provider_file_distribution(file_distribution, provider_id):
+    for element in file_distribution:
+        if element['providerId'] == provider_id:
+            return element
+
+
+def lookup_provider_id(provider_host):
+    get_provider_info_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host, PROVIDER_INFO)
+    response = requests.get(get_provider_info_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    return response.json()['providerId']
+
+
 args = parser.parse_args()
 
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
@@ -351,6 +397,7 @@ HEADERS = {'X-Auth-Token': args.token, "content-type": "application/json"}
 total_size = 0
 total_count = 0
 parent_dir = None
+files_sizes = dict()
 
 try:
     for bag_path in args.bag_paths:
@@ -366,8 +413,10 @@ try:
                     xattrs = prepare_checksum_xattrs(file_path, all_checksums)
                     checksum_xattrs = prepare_checksum_xattrs(file_path, all_checksums)
                     file_json_metadata = get_file_custom_json_metadata(file_path, files_json_metadata)
-                    destination_path = register_file(file_path, file_uri, size, checksum_xattrs, file_json_metadata)
-                    if destination_path:
+                    result = register_file(file_path, file_uri, size, checksum_xattrs, file_json_metadata)
+                    if result:
+                        destination_path, file_id, file_size = result
+                        files_sizes[file_id] = file_size
                         total_count += 1
                         total_size += int(size)
                         tmp_parent_dir = os.path.dirname(destination_path)
@@ -385,11 +434,15 @@ try:
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
 
-    if args.destination_provider_id:
-        print("\nScheduling transfer of directory: {0}".format(parent_dir))
+    if args.destination_host:
+        print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
+        destination_provider_id = lookup_provider_id(args.destination_host)
+        src_provider_id = lookup_provider_id(args.host)
+        wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id)
+        print("Scheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
         dir_id = lookup_file_id(space_name, parent_dir)
-        transfer_id = schedule_transfer_job(dir_id, args.destination_provider_id)
+        transfer_id = schedule_transfer_job(dir_id, destination_provider_id)
         print("Scheduled transfer: {0}".format(transfer_id))
 
 finally:
