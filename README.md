@@ -35,7 +35,7 @@ If not passed, replication won't be performed.
 
 ## Usage
 ```bash
-./upload.py -spi $SPACE_ID -sti $STORAGE_ID -t $TOKEN -H $HOST -dpid $DEST_PROVIDER_ID \ 
+./upload.py -spi $SPACE_ID -sti $STORAGE_ID -t $TOKEN -H $HOST -dhost $DEST_PROVIDER_HOST \ 
  -b bag_archiver_test_2014_11_15.tgz \
  -b bag_archiver_test_2017_10_11 \
  -b https://example.org/bag_archiver_test_2015_01_25.tgz
