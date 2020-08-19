@@ -123,6 +123,28 @@ parser.add_argument(
     default=None
 )
 
+
+parser.add_argument(
+    '--sync-timeout', '-st',
+    action='store',
+    type=int,
+    help='Time for synchronization of files between provider in seconds. All registered files that are to be replicated'
+         'must be visible by the destination provider.',
+    dest='sync_timeout',
+    default=60
+)
+
+
+parser.add_argument(
+    '--replication-timeout', '-rt',
+    action='store',
+    type=int,
+    help='Period in seconds for which the script will wait for the replication transfer to finish.',
+    dest='replication_timeout',
+    default=60
+)
+
+
 ONEPROVIDER_REST_FORMAT = "https://{0}/api/v3/oneprovider/{1}"
 REGISTER_FILE_PATH = "data/register"
 SCHEDULE_TRANSFER_PATH = "transfers"
@@ -130,6 +152,7 @@ LOOKUP_FILE_ID_PATH = "lookup-file-id/{0}/{1}"
 SPACE_DETAILS_PATH = "spaces/{0}"
 FILE_DISTRIBUTION_PATH = "data/{0}/distribution"
 PROVIDER_INFO = "configuration"
+TRANSFER_STATUS_PATH = "transfers/{0}"
 
 
 def strip_server_url(storage_file_id):
@@ -352,9 +375,9 @@ def get_file_distribution(provider_host, file_id):
         return response.json()
 
 
-def wait_for_synchronization_of_files(files_sizes, destination_host, src_provider_id):
+def wait_for_synchronization_of_files(files_sizes, destination_host, src_provider_id, attempts):
     for file_id, file_size in files_sizes.items():
-        wait_for_synchronization_of_file(file_id, file_size, destination_host, src_provider_id, 15)
+        wait_for_synchronization_of_file(file_id, file_size, destination_host, src_provider_id, attempts)
 
 
 def wait_for_synchronization_of_file(file_id, expected_file_size, destination_host, src_provider_id, attempts):
@@ -385,6 +408,25 @@ def lookup_provider_id(provider_host):
     get_provider_info_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host, PROVIDER_INFO)
     response = requests.get(get_provider_info_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
     return response.json()['providerId']
+
+
+def get_transfer_info(provider_host, transfer_id):
+    get_transfer_info_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host, TRANSFER_STATUS_PATH.format(transfer_id))
+    response = requests.get(get_transfer_info_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    if response.status_code == HTTPStatus.OK:
+        return response.json()
+
+
+def wait_for_transfer_to_finish(provider_host, transfer_id, attempts):
+    if attempts == 0:
+        raise Exception("Transfer {0} not finished.".format(transfer_id))
+    else:
+        transfer_info = get_transfer_info(provider_host, transfer_id)
+        if transfer_info and transfer_info['replicationStatus'] in ["completed", "cancelled", "failed"]:
+            return transfer_info['replicationStatus']
+        else:
+            time.sleep(1)
+            return wait_for_transfer_to_finish(provider_host, transfer_id, attempts - 1)
 
 
 args = parser.parse_args()
@@ -433,17 +475,23 @@ try:
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
+    # TODO end of registration step
 
     if args.destination_host:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
         destination_provider_id = lookup_provider_id(args.destination_host)
         src_provider_id = lookup_provider_id(args.host)
-        wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id)
-        print("Scheduling transfer of directory: {0}".format(parent_dir))
+        wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id, args.sync_timeout)
+        # TODO end of synchronization step
+        print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
         dir_id = lookup_file_id(space_name, parent_dir)
         transfer_id = schedule_transfer_job(dir_id, destination_provider_id)
         print("Scheduled transfer: {0}".format(transfer_id))
-
+        # TODO end of scheduling replication step
+        print("\nWaiting for transfer {0} to be finished".format(args.destination_host))
+        status = wait_for_transfer_to_finish(args.host, transfer_id, args.replication_timeout)
+        print("Transfer {0} finished with status: {1}".format(transfer_id, status))
+        # TODO end of awaiting for transfer to finish step
 finally:
     shutil.rmtree(TEMP_DIR, ignore_errors=True)
