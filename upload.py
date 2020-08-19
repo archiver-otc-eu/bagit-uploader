@@ -155,16 +155,7 @@ PROVIDER_INFO = "configuration"
 TRANSFER_STATUS_PATH = "transfers/{0}"
 
 
-def strip_server_url(storage_file_id):
-    parsed_url = urlparse(storage_file_id)
-    if parsed_url.scheme:
-        return parsed_url.path
-    else:
-        return storage_file_id
-
-
 def register_file(destination_path, storage_file_id, size, xattrs, custom_json_metadata=dict()):
-    storage_file_id = strip_server_url(storage_file_id)
     payload = {
         'spaceId': args.space_id,
         'storageId': args.storage_id,
