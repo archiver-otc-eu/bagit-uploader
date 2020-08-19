@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 
-import configargparse
-import shutil
-import tempfile
-import urllib.request
-from urllib.parse import urlparse
-import urllib3
-import requests
-import os
-import logging
-import json
-import time
 import datetime
+import json
+import logging
+import os
+import shutil
 import tarfile
+import tempfile
+import time
+import urllib.request
 import zipfile
 from http import HTTPStatus
+
+import configargparse
+import requests
+import urllib3
 from bdbag import bdbag_api
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -153,6 +153,7 @@ SPACE_DETAILS_PATH = "spaces/{0}"
 FILE_DISTRIBUTION_PATH = "data/{0}/distribution"
 PROVIDER_INFO = "configuration"
 TRANSFER_STATUS_PATH = "transfers/{0}"
+FLOWABLE_REST = "http://flowable-task/process-api/runtime/executions/{0}"
 
 
 def register_file(destination_path, storage_file_id, size, xattrs, custom_json_metadata=dict()):
@@ -432,6 +433,12 @@ total_count = 0
 parent_dir = None
 files_sizes = dict()
 
+process_id = ""
+signal_payload = {
+    "action":"signal",
+    "variables" : []
+}
+
 try:
     for bag_path in args.bag_paths:
         print("Registering files from bag: ", bag_path)
@@ -466,23 +473,33 @@ try:
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
-    # TODO end of registration step
+
+    # End of registration step, notify Flowable
+    requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
 
     if args.destination_host:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
         destination_provider_id = lookup_provider_id(args.destination_host)
         src_provider_id = lookup_provider_id(args.host)
         wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id, args.sync_timeout)
-        # TODO end of synchronization step
+
+        # End of synchronization step, notify Flowable
+        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+
         print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
         dir_id = lookup_file_id(space_name, parent_dir)
         transfer_id = schedule_transfer_job(dir_id, destination_provider_id)
         print("Scheduled transfer: {0}".format(transfer_id))
-        # TODO end of scheduling replication step
+
+        # End of scheduling replication step, notify Flowable
+        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+
         print("\nWaiting for transfer {0} to be finished".format(args.destination_host))
         status = wait_for_transfer_to_finish(args.host, transfer_id, args.replication_timeout)
         print("Transfer {0} finished with status: {1}".format(transfer_id, status))
-        # TODO end of awaiting for transfer to finish step
+
+        # End of awaiting for transfer to finish step, notify Flowable
+        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
 finally:
     shutil.rmtree(TEMP_DIR, ignore_errors=True)
