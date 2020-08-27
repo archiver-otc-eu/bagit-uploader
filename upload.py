@@ -295,9 +295,17 @@ def prepare_metadata_json(bag_path):
     if os.path.exists(metadata_json_path):
         with open(metadata_json_path, 'r') as f:
             metadata_json = json.load(f)
-            files_json_metadata_list = metadata_json.get("metadata", [])
-            files_json_metadata_map = {element['filename']: element for element in files_json_metadata_list}
-            return files_json_metadata_map
+            metadata_json_per_file = {}
+            for idx, element in enumerate(metadata_json.get("metadata", [])):
+                if "filename" not in element:
+                    logger.critical("ERROR: Metadata entry {} in {} doesn't containt "
+                                    "required 'filename' field: {}"
+                                    .format(idx, metadata_json_path, element)),
+                    exit(1)
+
+                metadata_json_per_file['filename'] = element
+
+            return metadata_json_per_file
     else:
         return dict()
 
