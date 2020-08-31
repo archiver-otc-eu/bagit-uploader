@@ -310,7 +310,7 @@ def prepare_metadata_json(bag_path):
             metadata_json_per_file = {}
             for idx, element in enumerate(metadata_json.get("metadata", [])):
                 if "filename" not in element:
-                    logger.critical("ERROR: Metadata entry {} in {} doesn't containt "
+                    logger.critical("ERROR: Metadata entry {} in {} doesn't contain "
                                     "required 'filename' field: {}"
                                     .format(idx, metadata_json_path, element)),
                     exit(1)
@@ -323,7 +323,7 @@ def prepare_metadata_json(bag_path):
 
 
 def get_file_custom_json_metadata(file_path, metadata_json):
-    return metadata_json.get(os.path.basename(file_path), dict())
+    return metadata_json.get(file_path, dict())
 
 
 def path_to_tokens(path):
