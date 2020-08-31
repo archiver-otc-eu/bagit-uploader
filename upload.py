@@ -123,6 +123,18 @@ parser.add_argument(
     default=None
 )
 
+
+parser.add_argument(
+    '--sync-timeout', '-st',
+    action='store',
+    type=int,
+    help='Time for synchronization of files between provider in seconds. All registered files that are to be replicated'
+         'must be visible by the destination provider.',
+    dest='sync_timeout',
+    default=60
+)
+
+
 ONEPROVIDER_REST_FORMAT = "https://{0}/api/v3/oneprovider/{1}"
 REGISTER_FILE_PATH = "data/register"
 SCHEDULE_TRANSFER_PATH = "transfers"
@@ -351,9 +363,9 @@ def get_file_distribution(provider_host, file_id):
         return response.json()
 
 
-def wait_for_synchronization_of_files(files_sizes, destination_host, src_provider_id):
+def wait_for_synchronization_of_files(files_sizes, destination_host, src_provider_id, attempts):
     for file_id, file_size in files_sizes.items():
-        wait_for_synchronization_of_file(file_id, file_size, destination_host, src_provider_id, 15)
+        wait_for_synchronization_of_file(file_id, file_size, destination_host, src_provider_id, attempts)
 
 
 def wait_for_synchronization_of_file(file_id, expected_file_size, destination_host, src_provider_id, attempts):
@@ -437,8 +449,8 @@ try:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
         destination_provider_id = lookup_provider_id(args.destination_host)
         src_provider_id = lookup_provider_id(args.host)
-        wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id)
-        print("Scheduling transfer of directory: {0}".format(parent_dir))
+        wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id, args.sync_timeout)
+        print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
         dir_id = lookup_file_id(space_name, parent_dir)
         transfer_id = schedule_transfer_job(dir_id, destination_provider_id)

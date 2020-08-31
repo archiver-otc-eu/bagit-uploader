@@ -32,7 +32,10 @@ Such files will be visible in the space but not accessible.
 * `-lf`, `--logging-frequency` - Frequency of logging. Log will occur after registering every logging_freq number of files.
 * `-dhost`, `--destination-host` - Host of a Oneprovider to which files will be replicated after registration. 
 If not passed, replication won't be performed.
-
+* `-st`, `--sync-timeout` - Time for synchronization of files between provider in seconds. All registered files that are to be replicated
+         must be visible by the destination provider.
+         
+         
 ## Usage
 ```bash
 ./upload.py -spi $SPACE_ID -sti $STORAGE_ID -t $TOKEN -H $HOST -dhost $DEST_PROVIDER_HOST \ 
@@ -58,6 +61,7 @@ storage-id: ee5eb90cb451feb7a84a8185588e31d5e2f4c308
 space-id: 7b6863abad13e4191ba2bf540d553fe75cdf7117
 disable-auto-detection: true
 destination-host: dev-oneprovider-paris.default.svc.cluster.local
+sync-timeout: 60
 ```
 
 ## Usage with config file 
