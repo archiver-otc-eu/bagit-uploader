@@ -28,6 +28,7 @@ SHA1 = "sha1"
 SHA256 = "sha256"
 SHA512 = "sha512"
 HASHING_ALGORITHMS = [MD5, SHA1, SHA256, SHA512]
+PATH_SEPARATOR = "/"
 
 DEFAULT_CONFIG_FILE = 'config.yaml'
 
@@ -161,7 +162,7 @@ def register_file(destination_path, storage_file_id, size, xattrs, custom_json_m
         response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
             # ensure that path starts with slash
-            return os.path.join("/", destination_path), response.json()['fileId'], int(size)
+            return os.path.join(PATH_SEPARATOR, destination_path), response.json()['fileId'], int(size)
         else:
             logger.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
                           .format(storage_file_id, response.status_code, response.content)),
@@ -314,8 +315,8 @@ def prepare_metadata_json(bag_path):
                                     "required 'filename' field: {}"
                                     .format(idx, metadata_json_path, element)),
                     exit(1)
-
-                metadata_json_per_file['filename'] = element
+                else:
+                    metadata_json_per_file[element['filename']] = element
 
             return metadata_json_per_file
     else:
@@ -323,7 +324,14 @@ def prepare_metadata_json(bag_path):
 
 
 def get_file_custom_json_metadata(file_path, metadata_json):
-    return metadata_json.get(file_path, dict())
+    abs_file_path = os.path.join(PATH_SEPARATOR, file_path)
+    rel_file_path = file_path.lstrip(PATH_SEPARATOR)
+    if abs_file_path in metadata_json:
+        return metadata_json.get(abs_file_path)
+    elif rel_file_path in metadata_json:
+        return metadata_json.get(rel_file_path)
+    else:
+        return dict()
 
 
 def path_to_tokens(path):
@@ -331,11 +339,11 @@ def path_to_tokens(path):
     parent, base = os.path.split(path)
     if base:
         tokens.append(base)
-    while parent != "/":
+    while parent != PATH_SEPARATOR:
         parent, base = os.path.split(parent)
         if base:
             tokens.append(base)
-    tokens.append("/")
+    tokens.append(PATH_SEPARATOR)
     tokens.reverse()
     return tokens
 
