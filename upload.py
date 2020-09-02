@@ -108,6 +108,14 @@ parser.add_argument(
     default=False)
 
 parser.add_argument(
+    '--flowable-task-rest-url', '-fwt',
+    action='store',
+    help='Send notifications to flowable after execution of each step.',
+    dest='flowable_task_rest_url',
+    default=None
+)
+
+parser.add_argument(
     '--config-file',
     action='store',
     is_config_file=True,
@@ -144,6 +152,7 @@ parser.add_argument(
     default=60
 )
 
+args = parser.parse_args()
 
 ONEPROVIDER_REST_FORMAT = "https://{0}/api/v3/oneprovider/{1}"
 REGISTER_FILE_PATH = "data/register"
@@ -153,7 +162,8 @@ SPACE_DETAILS_PATH = "spaces/{0}"
 FILE_DISTRIBUTION_PATH = "data/{0}/distribution"
 PROVIDER_INFO = "configuration"
 TRANSFER_STATUS_PATH = "transfers/{0}"
-FLOWABLE_REST = "http://flowable-task/process-api/runtime/executions/{0}"
+if args.flowable_task_rest_url:
+    FLOWABLE_REST = args.flowable_task_rest_url.rstrip("/")
 
 
 def register_file(destination_path, storage_file_id, size, xattrs, custom_json_metadata=dict()):
@@ -420,9 +430,6 @@ def wait_for_transfer_to_finish(provider_host, transfer_id, attempts):
             time.sleep(1)
             return wait_for_transfer_to_finish(provider_host, transfer_id, attempts - 1)
 
-
-args = parser.parse_args()
-
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
 REGISTER_FILE_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, REGISTER_FILE_PATH)
 SCHEDULE_TRANSFER_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, SCHEDULE_TRANSFER_PATH)
@@ -475,7 +482,8 @@ try:
     print("Total size: {0}".format(total_size))
 
     # End of registration step, notify Flowable
-    requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+    if args.flowable_task_rest_url:
+        requests.put(FLOWABLE_REST, json=signal_payload)
 
     if args.destination_host:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
@@ -484,7 +492,8 @@ try:
         wait_for_synchronization_of_files(files_sizes, args.destination_host, src_provider_id, args.sync_timeout)
 
         # End of synchronization step, notify Flowable
-        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+        if args.flowable_task_rest_url:
+            requests.put(FLOWABLE_REST, json=signal_payload)
 
         print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
@@ -493,13 +502,15 @@ try:
         print("Scheduled transfer: {0}".format(transfer_id))
 
         # End of scheduling replication step, notify Flowable
-        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+        if args.flowable_task_rest_url:
+            requests.put(FLOWABLE_REST, json=signal_payload)
 
         print("\nWaiting for transfer {0} to be finished".format(args.destination_host))
         status = wait_for_transfer_to_finish(args.host, transfer_id, args.replication_timeout)
         print("Transfer {0} finished with status: {1}".format(transfer_id, status))
 
         # End of awaiting for transfer to finish step, notify Flowable
-        requests.put(FLOWABLE_REST.format(process_id), json=signal_payload)
+        if args.flowable_task_rest_url:
+            requests.put(FLOWABLE_REST, json=signal_payload)
 finally:
     shutil.rmtree(TEMP_DIR, ignore_errors=True)
