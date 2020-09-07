@@ -16,6 +16,7 @@ import configargparse
 import requests
 import urllib3
 from bdbag import bdbag_api
+from requests.auth import HTTPBasicAuth
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = logging.getLogger(__name__)
@@ -131,7 +132,6 @@ parser.add_argument(
     default=None
 )
 
-
 parser.add_argument(
     '--sync-timeout', '-st',
     action='store',
@@ -141,7 +141,6 @@ parser.add_argument(
     dest='sync_timeout',
     default=60
 )
-
 
 parser.add_argument(
     '--replication-timeout', '-rt',
@@ -162,6 +161,8 @@ SPACE_DETAILS_PATH = "spaces/{0}"
 FILE_DISTRIBUTION_PATH = "data/{0}/distribution"
 PROVIDER_INFO = "configuration"
 TRANSFER_STATUS_PATH = "transfers/{0}"
+FLOWABLE_MASTER_USER = os.getenv('FLOWABLE_MASTER_USER', 'master')
+FLOWABLE_MASTER_PASSWORD = os.getenv('FLOWABLE_MASTER_PASSWORD', 'master')
 if args.flowable_task_rest_url:
     FLOWABLE_REST = args.flowable_task_rest_url.rstrip("/")
 
@@ -180,13 +181,14 @@ def register_file(destination_path, storage_file_id, size, xattrs, custom_json_m
     if custom_json_metadata:
         payload['json'] = custom_json_metadata
     try:
-        response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS, verify=(not args.disable_cert_verification))
+        response = requests.post(REGISTER_FILE_ENDPOINT, json=payload, headers=HEADERS,
+                                 verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
             # ensure that path starts with slash
             return os.path.join("/", destination_path), response.json()['fileId'], int(size)
         else:
             logger.error("Registration of {0} failed with HTTP status {1}.\n""Response: {2}"
-                          .format(storage_file_id, response.status_code, response.content)),
+                         .format(storage_file_id, response.status_code, response.content)),
             return None
     except Exception as e:
         logger.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
@@ -211,7 +213,8 @@ def schedule_transfer_job(file_id, destination_provider):
         "fileId": file_id,
         "dataSourceType": "file"
     }
-    response = requests.post(SCHEDULE_TRANSFER_ENDPOINT, headers=HEADERS, json=payload, verify=(not args.disable_cert_verification))
+    response = requests.post(SCHEDULE_TRANSFER_ENDPOINT, headers=HEADERS, json=payload,
+                             verify=(not args.disable_cert_verification))
     return response.json()['transferId']
 
 
@@ -232,7 +235,7 @@ def ensure_bag_extracted(bag_path, should_remove_extracted_bag=False):
             return None, False
     except:
         logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path),
-                      exc_info=True)
+                     exc_info=True)
         return None, False
 
 
@@ -255,7 +258,7 @@ def extract_bag(bag_path, output_path=None, temp=False):
             if os.path.exists(output_path):
                 newpath = ''.join([output_path, '-', datetime.strftime(datetime.now(), "%Y-%m-%d_%H.%M.%S")])
                 print("Specified output path %s already exists, moving existing directory to %s" %
-                            (output_path, newpath))
+                      (output_path, newpath))
                 shutil.move(output_path, newpath)
             output_path = os.path.dirname(bag_path)
         if zipfile.is_zipfile(bag_path):
@@ -371,8 +374,10 @@ def find_common_dir(dir1, dir2):
 
 
 def get_file_distribution(provider_host, file_id):
-    get_file_distribution_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host, FILE_DISTRIBUTION_PATH.format(file_id))
-    response = requests.get(get_file_distribution_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+    get_file_distribution_endpoint = ONEPROVIDER_REST_FORMAT.format(provider_host,
+                                                                    FILE_DISTRIBUTION_PATH.format(file_id))
+    response = requests.get(get_file_distribution_endpoint, headers=HEADERS,
+                            verify=(not args.disable_cert_verification))
     if response.status_code == HTTPStatus.OK:
         return response.json()
 
@@ -430,6 +435,7 @@ def wait_for_transfer_to_finish(provider_host, transfer_id, attempts):
             time.sleep(1)
             return wait_for_transfer_to_finish(provider_host, transfer_id, attempts - 1)
 
+
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
 REGISTER_FILE_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, REGISTER_FILE_PATH)
 SCHEDULE_TRANSFER_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, SCHEDULE_TRANSFER_PATH)
@@ -442,8 +448,8 @@ files_sizes = dict()
 
 process_id = ""
 signal_payload = {
-    "action":"signal",
-    "variables" : []
+    "action": "signal",
+    "variables": []
 }
 
 try:
@@ -482,8 +488,10 @@ try:
     print("Total size: {0}".format(total_size))
 
     # End of registration step, notify Flowable
+    headers = {'Content-Type': 'application/json'}
     if args.flowable_task_rest_url:
-        requests.put(FLOWABLE_REST, json=signal_payload)
+        requests.put(FLOWABLE_REST, json=signal_payload, headers=headers,
+                     auth=HTTPBasicAuth(FLOWABLE_MASTER_USER, FLOWABLE_MASTER_PASSWORD))
 
     if args.destination_host:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
@@ -493,7 +501,8 @@ try:
 
         # End of synchronization step, notify Flowable
         if args.flowable_task_rest_url:
-            requests.put(FLOWABLE_REST, json=signal_payload)
+            requests.put(FLOWABLE_REST, json=signal_payload, headers=headers,
+                         auth=HTTPBasicAuth(FLOWABLE_MASTER_USER, FLOWABLE_MASTER_PASSWORD))
 
         print("\nScheduling transfer of directory: {0}".format(parent_dir))
         space_name = get_space_name(args.space_id)
@@ -503,7 +512,8 @@ try:
 
         # End of scheduling replication step, notify Flowable
         if args.flowable_task_rest_url:
-            requests.put(FLOWABLE_REST, json=signal_payload)
+            requests.put(FLOWABLE_REST, json=signal_payload, headers=headers,
+                         auth=HTTPBasicAuth(FLOWABLE_MASTER_USER, FLOWABLE_MASTER_PASSWORD))
 
         print("\nWaiting for transfer {0} to be finished".format(args.destination_host))
         status = wait_for_transfer_to_finish(args.host, transfer_id, args.replication_timeout)
@@ -511,6 +521,7 @@ try:
 
         # End of awaiting for transfer to finish step, notify Flowable
         if args.flowable_task_rest_url:
-            requests.put(FLOWABLE_REST, json=signal_payload)
+            requests.put(FLOWABLE_REST, json=signal_payload, headers=headers,
+                         auth=HTTPBasicAuth(FLOWABLE_MASTER_USER, FLOWABLE_MASTER_PASSWORD))
 finally:
     shutil.rmtree(TEMP_DIR, ignore_errors=True)
