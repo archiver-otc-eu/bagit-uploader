@@ -194,25 +194,33 @@ def schedule_transfer_job(file_id, destination_provider):
     return response.json()['transferId']
 
 
-def ensure_bag_extracted(bag_path, should_remove_extracted_bag=False):
+def ensure_extracted_and_locate_bag(path_or_url, should_remove_extracted_bag=False):
     try:
-        (is_file, is_dir, is_uri) = bdbag_api.inspect_path(bag_path)
+        (is_file, is_dir, is_uri) = bdbag_api.inspect_path(path_or_url)
         if is_file:
-            bag_path = extract_bag_archive(bag_path)
-            return ensure_bag_extracted(bag_path, should_remove_extracted_bag=True)
-        elif is_dir and bdbag_api.is_bag(bag_path):
-            # bag_path is already a path to a correct bag structure
-            return bag_path, should_remove_extracted_bag
+            path_or_url = extract_bag_archive(path_or_url)
+            return ensure_extracted_and_locate_bag(path_or_url, should_remove_extracted_bag=True)
+        elif is_dir:
+            # bag_path is already a path to a directory
+            # we have to locate a bag structure in the directory
+            bag_path = locate_bag(path_or_url)
+            return bag_path, path_or_url, should_remove_extracted_bag
         elif is_uri:
-            bag_path = download(bag_path)
-            return ensure_bag_extracted(bag_path)
+            path_or_url = download(path_or_url)
+            return ensure_extracted_and_locate_bag(path_or_url)
         else:
-            logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path))
+            logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(path_or_url))
             return None, False
     except:
-        logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(bag_path),
-                      exc_info=True)
+        logger.error("Passed path {0} to bag that does not exist or is not a valid bag.".format(path_or_url),
+                     exc_info=True)
         return None, False
+
+
+def locate_bag(root_dir):
+    for dir, subdirs, _ in os.walk(root_dir):
+        if bdbag_api.is_bag(dir):
+            return dir
 
 
 def extract_bag_archive(bag_archive_path):
@@ -421,7 +429,7 @@ files_sizes = dict()
 try:
     for bag_path in args.bag_paths:
         print("Registering files from bag: ", bag_path)
-        bag_path, should_remove_extracted_bag = ensure_bag_extracted(bag_path)
+        bag_path, extracted_dir, should_remove_extracted_dir = ensure_extracted_and_locate_bag(bag_path)
         if bag_path:
             all_checksums = collect_all_checksums(bag_path)
             files_json_metadata = prepare_metadata_json(bag_path)
@@ -447,13 +455,13 @@ try:
                     if args.logging_freq and i % args.logging_freq == 0 and i > 0:
                         print("Processed {0} files".format(i))
 
-        if should_remove_extracted_bag:
-            shutil.rmtree(os.path.dirname(bag_path), ignore_errors=True)
+        if should_remove_extracted_dir:
+            shutil.rmtree(os.path.dirname(extracted_dir), ignore_errors=True)
 
     print("\nTotal registered files count: {0}".format(total_count))
     print("Total size: {0}".format(total_size))
 
-    if args.destination_host:
+    if args.destination_host and len(files_sizes) > 0:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
         destination_provider_id = lookup_provider_id(args.destination_host)
         src_provider_id = lookup_provider_id(args.host)
