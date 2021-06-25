@@ -284,10 +284,10 @@ def map_hashing_algorithm_to_manifest(hashing_algorithm):
 
 def collect_all_checksums(bag_path):
     all_checksums = dict()
-    for hashing_algorith in HASHING_ALGORITHMS:
-        checksums = collect_checksums(bag_path, hashing_algorith)
+    for hashing_algorithm in HASHING_ALGORITHMS:
+        checksums = collect_checksums(bag_path, hashing_algorithm)
         if checksums:
-            all_checksums[hashing_algorith] = checksums
+            all_checksums[hashing_algorithm] = checksums
     return all_checksums
 
 
@@ -307,7 +307,8 @@ def collect_checksums(bag_path, hashing_algorithm):
 def prepare_checksum_xattrs(file_path, all_checksums):
     checksum_xattrs = dict()
     for hashing_algorithm, checksums in all_checksums.items():
-        checksum_xattrs["checksum.{0}".format(hashing_algorithm)] = checksums[file_path]
+        if file_path in checksums:
+            checksum_xattrs["checksum.{0}".format(hashing_algorithm)] = checksums[file_path]
     return checksum_xattrs
 
 
