@@ -12,6 +12,7 @@ import logging
 import json
 import time
 import datetime
+import pathlib
 import tarfile
 import zipfile
 from http import HTTPStatus
@@ -31,6 +32,7 @@ HASHING_ALGORITHMS = [MD5, SHA1, SHA256, SHA512]
 PATH_SEPARATOR = "/"
 
 DEFAULT_CONFIG_FILE = 'config.yaml'
+DEFAULT_DESTINATION_DIRECTORY = ''
 
 parser = configargparse.ArgumentParser(
     formatter_class=configargparse.ArgumentDefaultsHelpFormatter,
@@ -124,6 +126,13 @@ parser.add_argument(
     default=None
 )
 
+parser.add_argument(
+    '--dest-directory', '-di',
+    action='store',
+    help='Directory path relative to space directory, where the files will be registered.',
+    dest='destination_directory',
+    default=None
+)
 
 parser.add_argument(
     '--sync-timeout', '-st',
@@ -415,6 +424,19 @@ def lookup_provider_id(provider_host):
     return response.json()['providerId']
 
 
+def normalize_destination_path(file_path, destination_directory):
+    bagit_file_path = pathlib.Path(file_path)
+    # Remove top level directory ('data') from bagit
+    path_offset = 1
+    if bagit_file_path.is_absolute():
+        path_offset = 2
+    file_path_original = pathlib.Path(*bagit_file_path.parts[path_offset:])
+
+    if not destination_directory:
+        return str(file_path_original)
+
+    return str(pathlib.Path(destination_directory) / file_path_original)
+
 args = parser.parse_args()
 
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
@@ -441,6 +463,7 @@ try:
                     xattrs = prepare_checksum_xattrs(file_path, all_checksums)
                     checksum_xattrs = prepare_checksum_xattrs(file_path, all_checksums)
                     file_json_metadata = get_file_custom_json_metadata(file_path, files_json_metadata)
+                    file_path = normalize_destination_path(file_path, args.destination_directory)
                     result = register_file(file_path, file_uri, size, checksum_xattrs, file_json_metadata)
                     if result:
                         destination_path, file_id, file_size = result
