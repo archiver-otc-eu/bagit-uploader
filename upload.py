@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 FILES_INDEX = "fetch.txt"
 CHECKSUM_MANIFEST_FORMAT = "manifest-{0}.txt"
-METADATA_JSON = "metadata.json"
+DEFAULT_METADATA_JSON = "metadata.json"
 MD5 = "md5"
 SHA1 = "sha1"
 SHA256 = "sha256"
@@ -321,8 +321,8 @@ def prepare_checksum_xattrs(file_path, all_checksums):
     return checksum_xattrs
 
 
-def prepare_metadata_json(bag_path):
-    metadata_json_path = os.path.join(bag_path, METADATA_JSON)
+def prepare_metadata_json(bag_path, metadata_json_file = DEFAULT_METADATA_JSON):
+    metadata_json_path = os.path.join(bag_path, metadata_json_file)
     if os.path.exists(metadata_json_path):
         with open(metadata_json_path, 'r') as f:
             metadata_json = json.load(f)
@@ -341,13 +341,50 @@ def prepare_metadata_json(bag_path):
         return dict()
 
 
+def prepare_magic_metadata_json(bag_path):
+    data_directory = os.path.join(bag_path, 'data')
+    metadata_json_file = None
+    for f in os.listdir(data_directory):
+        if f.endswith(".metadata.json"):
+            metadata_json_file = f
+            break
+
+    if metadata_json_file:
+        metadata_json_path = os.path.join(bag_path, 'data', metadata_json_file)
+        with open(metadata_json_path, 'r') as f:
+            metadata_json = json.load(f)
+            metadata_json_per_file = {}
+            for idx, element in enumerate(metadata_json.get("metadata", [])):
+                if "dc.name" not in element:
+                    logger.critical("ERROR: Metadata entry {} in {} doesn't contain "
+                                    "required 'dc.name' field: {}"
+                                    .format(idx, metadata_json_path, element)),
+                    exit(1)
+                else:
+                    metadata_json_per_file[element['dc.name']] = element
+
+            return metadata_json_per_file
+    else:
+        return None
+
+
 def get_file_custom_json_metadata(file_path, metadata_json):
     abs_file_path = os.path.join(PATH_SEPARATOR, file_path)
     rel_file_path = file_path.lstrip(PATH_SEPARATOR)
+    data_file_path = pathlib.Path(file_path)
+    # Remove top level directory ('data') from path
+    path_offset = 1
+    if data_file_path.is_absolute():
+        path_offset = 2
+
+    data_file_path = str(pathlib.Path(*data_file_path.parts[path_offset:]))
+
     if abs_file_path in metadata_json:
         return metadata_json.get(abs_file_path)
     elif rel_file_path in metadata_json:
         return metadata_json.get(rel_file_path)
+    elif data_file_path in metadata_json:
+        return metadata_json.get(data_file_path)
     else:
         return dict()
 
@@ -455,7 +492,10 @@ try:
         bag_path, extracted_dir, should_remove_extracted_dir = ensure_extracted_and_locate_bag(bag_path)
         if bag_path:
             all_checksums = collect_all_checksums(bag_path)
-            files_json_metadata = prepare_metadata_json(bag_path)
+            files_json_metadata = prepare_magic_metadata_json(bag_path)
+            if not files_json_metadata:
+                files_json_metadata = prepare_metadata_json(bag_path)
+
             with open(os.path.join(bag_path, FILES_INDEX), 'r') as f:
                 i = 0
                 for line in f:
