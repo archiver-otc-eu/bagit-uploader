@@ -10,6 +10,7 @@ import requests
 import os
 import logging
 import json
+import glob
 import time
 import datetime
 import pathlib
@@ -19,6 +20,7 @@ from http import HTTPStatus
 from bdbag import bdbag_api
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 FILES_INDEX = "fetch.txt"
@@ -47,6 +49,14 @@ requiredNamed.add_argument(
     help='Oneprovider host.',
     dest='host',
     required=True)
+
+requiredNamed.add_argument(
+    '--upload-host', '-U',
+    action='store',
+    help='Oneprovider host to which the files available in data folder of the bag will be uploaded.',
+    dest='upload_host',
+    default=None,
+    required=False)
 
 requiredNamed.add_argument(
     '--space-id', '-spi',
@@ -147,6 +157,10 @@ parser.add_argument(
 
 ONEPROVIDER_REST_FORMAT = "https://{0}/api/v3/oneprovider/{1}"
 REGISTER_FILE_PATH = "data/register"
+UPLOAD_FILE_PATH = "data/{0}/children?name={1}"
+GET_SPACE_PATH = "spaces/{0}"
+CREATE_FILE_PATH = "data/{0}/children?name={1}&type={2}"
+LIST_DIRECTORY_PATH = "data/{0}/children?offset={1}&limit={2}"
 SCHEDULE_TRANSFER_PATH = "transfers"
 LOOKUP_FILE_ID_PATH = "lookup-file-id/{0}/{1}"
 SPACE_DETAILS_PATH = "spaces/{0}"
@@ -178,6 +192,94 @@ def register_file(destination_path, storage_file_id, size, xattrs, custom_json_m
             return None
     except Exception as e:
         logger.error("Registration of {0} failed due to {1}".format(storage_file_id, e), exc_info=True)
+
+
+def get_space_file_id():
+    try:
+        get_space_path_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, GET_SPACE_PATH.format(args.space_id))
+        response = requests.get(get_space_path_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+        if response.status_code == HTTPStatus.OK:
+            return response.json()['fileId']
+        else:
+            logger.error("Getting space {0} information failed with HTTP status {1}.\n""Response: {2}"
+                          .format(args.space_id, response.status_code, response.content)),
+            return None
+    except Exception as e:
+        logger.error("Getting space {0} information failed due to {1}".format(args.space_id, e), exc_info=True)
+
+    return None
+
+
+def get_file_id(parent_id, name):
+    is_last = False
+    offset = 0
+    limit = 1000
+    while not is_last:
+        try:
+            get_file_id_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, LIST_DIRECTORY_PATH.format(parent_id, offset, limit))
+            response = requests.get(get_file_id_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+            if response.status_code == HTTPStatus.OK:
+                for child in response.json()['children']:
+                    if child['name'] == name:
+                        return child['id']
+
+                offset = offset + len(response.json()['children'])
+                is_last = response.json()['isLast']
+            else:
+                logger.error("Listing directory {0} failed with HTTP status {1}.\n""Response: {2}"
+                            .format(parent_id, response.status_code, response.content)),
+        except Exception as e:
+            logger.error("Listing directory {0} failed due to {1}".format(parent_id, e), exc_info=True)
+
+    return None
+
+
+def create_directory(parent_id, name):
+    try:
+        create_directory_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, CREATE_FILE_PATH.format(parent_id, name, "DIR"))
+        response = requests.post(create_directory_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
+        if response.status_code == HTTPStatus.CREATED:
+            return response.json()['fileId']
+        elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()['error']['details']['errno'] == 'eexist':
+            res = get_file_id(parent_id, name)
+            return res
+        else:
+            logger.error("Creating directory {0} information failed with HTTP status {1}.\n""Response: {2}"
+                          .format(name, response.status_code, response.content)),
+            return None
+    except Exception as e:
+        logger.error("Creating directory {0} information failed due to {1}".format(name, e), exc_info=True)
+
+    return None
+
+
+def ensure_destination_directory_exists(destination_path):
+    path = pathlib.Path(destination_path)
+    parent_id = get_space_file_id()
+    for d in path.parts:
+        if d == '/':
+            continue
+        parent_id = create_directory(parent_id, d)
+
+    return parent_id
+
+
+def upload_file(local_file_path, parent_id, name):
+    with open(local_file_path, "rb") as payload:
+        try:
+            upload_file_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, UPLOAD_FILE_PATH.format(parent_id, name))
+            response = requests.post(upload_file_endpoint, data = payload.read(), headers=HEADERS_UPLOAD, verify=(not args.disable_cert_verification))
+            if response.status_code == HTTPStatus.CREATED:
+                return True
+            elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()['error']['details']['errno'] == 'eexist':
+                return True
+            else:
+                logger.error("Upload of {0} file failed with HTTP status {1}.\n""Response: {2}"
+                            .format(local_file_path, response.status_code, response.content)),
+        except Exception as e:
+            logger.error("Upload of {0} file failed due to {1}".format(local_file_path, e), exc_info=True)
+
+        return False
 
 
 def get_space_name(space_id):
@@ -345,7 +447,7 @@ def prepare_magic_metadata_json(bag_path):
     data_directory = os.path.join(bag_path, 'data')
     metadata_json_file = None
     for f in os.listdir(data_directory):
-        if f.endswith(".metadata.json"):
+        if f.endswith("metadata.json"):
             metadata_json_file = f
             break
 
@@ -478,8 +580,10 @@ args = parser.parse_args()
 
 TEMP_DIR = tempfile.mkdtemp(dir=".", prefix=".")
 REGISTER_FILE_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, REGISTER_FILE_PATH)
+# UPLOAD_FILE_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, UPLOAD_FILE_PATH)
 SCHEDULE_TRANSFER_ENDPOINT = ONEPROVIDER_REST_FORMAT.format(args.host, SCHEDULE_TRANSFER_PATH)
 HEADERS = {'X-Auth-Token': args.token, "content-type": "application/json"}
+HEADERS_UPLOAD = {'X-Auth-Token': args.token, "content-type": "application/octet-stream"}
 
 total_size = 0
 total_count = 0
@@ -496,6 +600,30 @@ try:
             if not files_json_metadata:
                 files_json_metadata = prepare_metadata_json(bag_path)
 
+            # Upload files present in the bag's 'data' directory
+            uploaded_file_count = 0
+            uploaded_file_size = 0
+            if args.upload_host:
+                print("Uploading files from 'data' folder...")
+                data_path = pathlib.Path(bag_path) / 'data'
+                upload_files = [pathlib.Path(f) for f in glob.glob(str(data_path / '**/*'), recursive=True) if os.path.isfile(f)]
+                for f in upload_files:
+                    destination_path = pathlib.Path(normalize_destination_path(f.relative_to(bag_path), args.destination_directory))
+                    if not destination_path.is_absolute():
+                        destination_path = '/' / destination_path
+                    parent_id = ensure_destination_directory_exists(str(destination_path.parent))
+                    if not parent_id:
+                        logger.error("Cannot create directory {0}".format(destination_path.parent))
+                        exit(1)
+                    logger.info("Uploading file {0}".format(destination_path))
+                    if upload_file(str(f), parent_id, f.name):
+                        uploaded_file_count += 1
+                        uploaded_file_size += os.stat(str(f)).st_size
+            else:
+                print("Warning - no host provided (-U) for uploading files in 'data' directory - skipping upload...")
+
+            # Register files in fetch.txt file
+            print("Registering remote files from fetch.txt...")
             with open(os.path.join(bag_path, FILES_INDEX), 'r') as f:
                 i = 0
                 for line in f:
@@ -504,6 +632,7 @@ try:
                     checksum_xattrs = prepare_checksum_xattrs(file_path, all_checksums)
                     file_json_metadata = get_file_custom_json_metadata(file_path, files_json_metadata)
                     file_path = normalize_destination_path(file_path, args.destination_directory)
+                    logger.info("Registering file {0}".format(file_path))
                     result = register_file(file_path, file_uri, size, checksum_xattrs, file_json_metadata)
                     if result:
                         destination_path, file_id, file_size = result
@@ -522,8 +651,9 @@ try:
         if should_remove_extracted_dir:
             shutil.rmtree(os.path.dirname(extracted_dir), ignore_errors=True)
 
-    print("\nTotal registered files count: {0}".format(total_count))
-    print("Total size: {0}".format(total_size))
+    print("\nTotal uploaded files count: {0}".format(uploaded_file_count))
+    print("Total registered files count: {0}".format(total_count))
+    print("Total size: {0}".format(total_size+uploaded_file_size))
 
     if args.destination_host and len(files_sizes) > 0:
         print("\nWaiting for all registered files to be synchronized to provider: {0}".format(args.destination_host))
