@@ -236,7 +236,7 @@ def get_file_id(parent_id, name):
 
 def create_directory(parent_id, name):
     try:
-        create_directory_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, CREATE_FILE_PATH.format(parent_id, name, "DIR"))
+        create_directory_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, CREATE_FILE_PATH.format(parent_id, requests.utils.quote(name), "DIR"))
         response = requests.post(create_directory_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
         if response.status_code == HTTPStatus.CREATED:
             return response.json()['fileId']
