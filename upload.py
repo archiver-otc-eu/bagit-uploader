@@ -619,8 +619,12 @@ try:
                     if upload_file(str(f), parent_id, f.name):
                         uploaded_file_count += 1
                         uploaded_file_size += os.stat(str(f)).st_size
+
+                print("Waiting for filesystem tree to synchronize between providers...")
+                time.sleep(30)
             else:
                 print("Warning - no host provided (-U) for uploading files in 'data' directory - skipping upload...")
+
 
             # Register files in fetch.txt file
             print("Registering remote files from fetch.txt...")
