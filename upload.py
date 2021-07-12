@@ -210,13 +210,13 @@ def get_space_file_id():
     return None
 
 
-def get_file_id(parent_id, name):
+def get_file_id(host, parent_id, name):
     is_last = False
     offset = 0
     limit = 1000
     while not is_last:
         try:
-            get_file_id_endpoint = ONEPROVIDER_REST_FORMAT.format(args.upload_host, LIST_DIRECTORY_PATH.format(parent_id, offset, limit))
+            get_file_id_endpoint = ONEPROVIDER_REST_FORMAT.format(host, LIST_DIRECTORY_PATH.format(parent_id, offset, limit))
             response = requests.get(get_file_id_endpoint, headers=HEADERS, verify=(not args.disable_cert_verification))
             if response.status_code == HTTPStatus.OK:
                 for child in response.json()['children']:
@@ -241,7 +241,7 @@ def create_directory(parent_id, name):
         if response.status_code == HTTPStatus.CREATED:
             return response.json()['fileId']
         elif response.status_code == HTTPStatus.BAD_REQUEST and response.json()['error']['details']['errno'] == 'eexist':
-            res = get_file_id(parent_id, name)
+            res = get_file_id(args.upload_host, parent_id, name)
             return res
         else:
             logger.error("Creating directory {0} information failed with HTTP status {1}.\n""Response: {2}"
@@ -262,6 +262,20 @@ def ensure_destination_directory_exists(destination_path):
         parent_id = create_directory(parent_id, d)
 
     return parent_id
+
+
+def check_if_directory_exists(host, destination_path):
+    path = pathlib.Path(destination_path)
+    parent_id = get_space_file_id()
+    for d in path.parts:
+        if d == '/':
+            continue
+        print(".", end = '', flush = True)
+        parent_id = get_file_id(host, parent_id, d)
+        if not parent_id:
+            return False
+
+    return True
 
 
 def upload_file(local_file_path, parent_id, name):
@@ -603,6 +617,7 @@ try:
             # Upload files present in the bag's 'data' directory
             uploaded_file_count = 0
             uploaded_file_size = 0
+            created_directories = set()
             if args.upload_host:
                 print("Uploading files from 'data' folder...")
                 data_path = pathlib.Path(bag_path) / 'data'
@@ -612,6 +627,7 @@ try:
                     if not destination_path.is_absolute():
                         destination_path = '/' / destination_path
                     parent_id = ensure_destination_directory_exists(str(destination_path.parent))
+                    created_directories.add(str(destination_path.parent))
                     if not parent_id:
                         logger.error("Cannot create directory {0}".format(destination_path.parent))
                         exit(1)
@@ -620,8 +636,11 @@ try:
                         uploaded_file_count += 1
                         uploaded_file_size += os.stat(str(f)).st_size
 
-                print("Waiting for filesystem tree to synchronize between providers...")
-                time.sleep(30)
+                print("Waiting for filesystem tree to synchronize between providers", end = '', flush = True)
+                for d in created_directories:
+                    while not check_if_directory_exists(args.host, d):
+                        time.sleep(5)
+                print("")
             else:
                 print("Warning - no host provided (-U) for uploading files in 'data' directory - skipping upload...")
 
